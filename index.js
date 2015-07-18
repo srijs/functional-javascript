@@ -3,10 +3,10 @@
 //---
 
 let tailChain = function (m, fn) {
-  m.tailMap(function (a, wrap) {
-    fn(a, function (b, cb) {
-      wrap(b, function (mm) {
-        cb(mm.join());
+  return m.tailMap(function (a, wrap) {
+    return fn(a, function (b, cb) {
+      return wrap(b, function (mm) {
+        return cb(mm.join());
       });
     });
   });
@@ -20,6 +20,10 @@ let Writer = function (w, a) {
   this.a = a;
 };
 
+Writer.prototype.of = function (a) {
+  return Writer(this.w.empty(), a);
+};
+
 Writer.prototype.join = function () {
   return Writer(this.w.concat(this.a.w), this.a.a);
 };
@@ -28,10 +32,6 @@ Writer.prototype.tailMap = function (fn) {
   return fn(this.a, function (b, cb) {
     return cb(Writer(this.w, b));
   }.bind(this));
-};
-
-Writer.prototype.of = function (a) {
-  return Writer(this.w.empty(), a);
 };
 
 //---
@@ -53,14 +53,14 @@ Log.prototype.concat = function (log) {
 
 //---
 
-let warn = function (message) {
-  return Writer(
+let warn = function* (message) {
+  yield Writer(
     Log([{level: 'warn', message: message}])
   );
 };
 
-let info = function (message) {
-  return Writer(
+let info = function* (message) {
+  yield Writer(
     Log([{level: 'info', message: message}])
   );
 };
@@ -69,7 +69,7 @@ let info = function (message) {
 
 let run = function (m, gen, cb) {
   let running = function *() {
-    let r = yield *gen(gen);
+    let r = yield *gen();
     return m.of(r);
   }();
   let rec = function (value, cb) {
@@ -77,13 +77,18 @@ let run = function (m, gen, cb) {
     if (next.done) {
       return cb(next.value);
     }
-    tailChain(next.value, function (a, wrap) {
-      rec(a, function (b) {
-        wrap(b, cb);
+    return tailChain(next.value, function (a, wrap) {
+      return rec(a, function (b) {
+        return wrap(b, cb);
       });
     });
   };
-  return rec(null, cb);
+  return rec(null, function (r) {
+    if (typeof cb === 'function') {
+      return cb(r);
+    }
+    return r;
+  });
 };
 
 //---
@@ -91,7 +96,7 @@ let run = function (m, gen, cb) {
 let LogWriter = Writer(Log());
 
 let hello = function* (v) {
-  yield info('hello ' + v);
+  yield* info('hello ' + v);
   return v + 1;
 };
 
@@ -99,10 +104,9 @@ let log = function* () {
   let v = yield LogWriter.of(42);
   let w = yield* hello(v);
   let x = yield* hello(w);
-  yield warn('all done');
+  yield* warn('all done');
   return x;
 };
 
-run(LogWriter, log, function (writer) {
-  console.log(JSON.stringify(writer, null, 2));
-});
+var writer = run(LogWriter, log);
+console.log(JSON.stringify(writer, null, 2));
