@@ -2,6 +2,29 @@
 
 //---
 
+let Next = function (value, done) {
+  this.value = value;
+  this.done = done;
+};
+
+Next.fromNext = function (next) {
+  return new Next(next.value, next.done);
+};
+
+Next.of = function (value) {
+  return new Next(value, false);
+};
+
+Next.prototype.map = function (f) {
+  return new Next(f(this.value), this.done);
+};
+
+Next.prototype.ap = function (b) {
+  return new Next(this.value(b.value), b.done);
+};
+
+//---
+
 let Writer = function (w, a) {
   if (!(this instanceof Writer)) {
     return new Writer(w, a);
@@ -26,11 +49,14 @@ Writer.prototype.chain = function (fn) {
   return this.join(fn(this.a));
 };
 
+Writer.prototype.sequence = function (of) {
+  return of(function (writer) {
+    return Writer(this.w.concat(writer.w), writer.a);
+  }.bind(this)).ap(this.a);
+};
+
 Writer.prototype.sequenceNext = function () {
-  return {
-    value: Writer(this.w.concat(this.a.value.w), this.a.value.a),
-    done: this.a.done
-  };
+  return this.sequence(Next.of);
 };
 
 //---
@@ -52,14 +78,14 @@ Log.prototype.concat = function (log) {
 
 //---
 
-let run = function (m, gen) {
+let run = function (gen, of) {
   let running = function *() {
-    return m.of(yield *gen());
+    return of(yield *gen());
   }();
-  let next = {value: m.of(null), done: false};
+  let next = Next.of(of(null));
   while (!next.done) {
     next = next.value.map(function (a) {
-      return running.next(a);
+      return Next.fromNext(running.next(a));
     }).sequenceNext();
   }
   return next.value;
@@ -104,9 +130,9 @@ var countdown = function* (n) {
 };
 
 var countdown42 = function *() {
-  yield *countdown(10);
+  yield *countdown(42);
   return 100;
 };
 
-var writer = run(LogWriter, log);
+var writer = run(countdown42, LogWriter.of.bind(LogWriter));
 console.log(JSON.stringify(writer, null, 2));
