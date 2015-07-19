@@ -2,16 +2,6 @@
 
 //---
 
-let tailChain = function (m, fn) {
-  return m.tailMap(function (a, wrap) {
-    return fn(a, function (b, cb) {
-      return wrap(b, function (mm) {
-        return cb(mm.join());
-      });
-    });
-  });
-};
-
 let Writer = function (w, a) {
   if (!(this instanceof Writer)) {
     return new Writer(w, a);
@@ -20,18 +10,27 @@ let Writer = function (w, a) {
   this.a = a;
 };
 
+Writer.prototype.tell = function (w) {
+  return Writer(w);
+};
+
 Writer.prototype.of = function (a) {
   return Writer(this.w.empty(), a);
 };
 
-Writer.prototype.join = function () {
-  return Writer(this.w.concat(this.a.w), this.a.a);
+Writer.prototype.map = function (f) {
+  return Writer(this.w, f(this.a));
 };
 
-Writer.prototype.tailMap = function (fn) {
-  return fn(this.a, function (b, cb) {
-    return cb(Writer(this.w, b));
-  }.bind(this));
+Writer.prototype.chain = function (fn) {
+  return this.join(fn(this.a));
+};
+
+Writer.prototype.sequenceNext = function () {
+  return {
+    value: Writer(this.w.concat(this.a.value.w), this.a.value.a),
+    done: this.a.done
+  };
 };
 
 //---
@@ -53,47 +52,32 @@ Log.prototype.concat = function (log) {
 
 //---
 
-let warn = function* (message) {
-  yield Writer(
-    Log([{level: 'warn', message: message}])
-  );
-};
-
-let info = function* (message) {
-  yield Writer(
-    Log([{level: 'info', message: message}])
-  );
-};
-
-//---
-
-let run = function (m, gen, cb) {
+let run = function (m, gen) {
   let running = function *() {
-    let r = yield *gen();
-    return m.of(r);
+    return m.of(yield *gen());
   }();
-  let rec = function (value, cb) {
-    let next = running.next(value);
-    if (next.done) {
-      return cb(next.value);
-    }
-    return tailChain(next.value, function (a, wrap) {
-      return rec(a, function (b) {
-        return wrap(b, cb);
-      });
-    });
-  };
-  return rec(null, function (r) {
-    if (typeof cb === 'function') {
-      return cb(r);
-    }
-    return r;
-  });
+  let next = {value: m.of(null), done: false};
+  while (!next.done) {
+    next = next.value.map(function (a) {
+      return running.next(a);
+    }).sequenceNext();
+  }
+  return next.value;
 };
 
 //---
 
 let LogWriter = Writer(Log());
+
+let warn = function* (message) {
+  yield LogWriter.tell(Log([{level: 'warn', message: message}]));
+};
+
+let info = function* (message) {
+  yield LogWriter.tell(Log([{level: 'info', message: message}]));
+};
+
+//--
 
 let hello = function* (v) {
   yield* info('hello ' + v);
@@ -104,8 +88,24 @@ let log = function* () {
   let v = yield LogWriter.of(42);
   let w = yield* hello(v);
   let x = yield* hello(w);
+  let y = yield* hello(x);
+  let z = yield* hello(y);
   yield* warn('all done');
-  return x;
+  return z;
+};
+
+var countdown = function* (n) {
+  yield* info('hello ' + n);
+  if (n > 0) {
+    yield* countdown(n - 1);
+  } else {
+    return n;
+  }
+};
+
+var countdown42 = function *() {
+  yield *countdown(10);
+  return 100;
 };
 
 var writer = run(LogWriter, log);
