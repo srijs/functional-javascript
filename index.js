@@ -54,7 +54,7 @@ Writer.prototype.chain = function (f) {
   return new Writer(this.w.concat(writer.w), writer.a);
 };
 
-// Writer w a -> Generator (Writer w a) -> Writer w a
+// Writer w a -> (a -> Generator (Writer w a)) -> Writer w a
 Writer.prototype.chainGen = function (gen) {
   return this.chain(function (a) {
     let running = function *() {
@@ -103,7 +103,7 @@ Reader.prototype.chain = function (f) {
   }.bind(this));
 };
 
-// Reader r a -> Generator (Reader r a) -> Reader r a
+// Reader r a -> (a -> Generator (Reader r a)) -> Reader r a
 Reader.prototype.chainGen = function (gen) {
   return this.chain(function (a) {
     let running = function *() {
