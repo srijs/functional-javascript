@@ -54,12 +54,70 @@ Writer.prototype.chain = function (f) {
   return new Writer(this.w.concat(writer.w), writer.a);
 };
 
-// Writer w (Next a) -> Next (Writer w a)
-Writer.prototype.sequenceNext = function () {
-  return new Next(
-    new Writer(this.w, this.a.value),
-    this.a.done
-  );
+// Writer w a -> Generator (Writer w a) -> Writer w a
+Writer.prototype.chainGen = function (gen) {
+  return this.chain(function (a) {
+    let running = function *() {
+      return this.of(yield *gen(a));
+    }.bind(this)();
+    let next = Next.of(this.of(a));
+    while (!next.done) {
+      next = Next.fromNext(running.next(next.value.a)).map(function (writer) {
+        return new Writer(next.value.w.concat(writer.w), writer.a);
+      });
+    }
+    return next.value;
+  }.bind(this));
+};
+
+//---
+
+let Reader = function (runReader) {
+  if (!(this instanceof Reader)) {
+    return new Reader(runReader);
+  }
+  this.runReader = runReader;
+};
+
+// Reader r a
+Reader.ask = function () {
+  return new Reader(function (r) { return r; });
+};
+
+// a -> Reader r a
+Reader.of = function (a) {
+  return new Reader(function (_) { return a; });
+};
+
+// Reader r a -> (a -> b) -> Reader r b
+Reader.prototype.map = function (f) {
+  return new Reader(function (r) {
+    return f(this.runReader(r));
+  }.bind(this));
+};
+
+// Reader r a -> (a -> Reader r b) -> Reader r b
+Reader.prototype.chain = function (f) {
+  return new Reader(function (r) {
+    return f(this.runReader(r)).runReader(r);
+  }.bind(this));
+};
+
+// Reader r a -> Generator (Reader r a) -> Reader r a
+Reader.prototype.chainGen = function (gen) {
+  return this.chain(function (a) {
+    let running = function *() {
+      return Reader.of(yield *gen(a));
+    }();
+    return Reader.ask().chain(function (r) {
+      let next = Next.of(Reader.of(a));
+      while (!next.done) {
+        let a = next.value.runReader(r);
+        next = Next.fromNext(running.next(a));
+      }
+      return next.value;
+    });
+  });
 };
 
 //---
@@ -77,23 +135,6 @@ Log.prototype.empty = function () {
 
 Log.prototype.concat = function (log) {
   return Log(this.log.concat(log.log));
-};
-
-//---
-
-let seqChain = function (gen, of) {
-  let running = function *() {
-    return of(yield *gen());
-  }();
-  let next = Next.of(of(null));
-  while (!next.done) {
-    next = next.value.map(function (a) {
-      return Next.fromNext(running.next(a));
-    }).sequenceNext().map(function (a) {
-      return a.chain(function (a) { return a; });
-    });
-  }
-  return next.value;
 };
 
 //---
@@ -139,5 +180,18 @@ var countdown42 = function *() {
   return 100;
 };*/
 
-var writer = seqChain(log, LogWriter.of.bind(LogWriter));
+var writer = LogWriter.of(null).chainGen(log);
 console.log(JSON.stringify(writer, null, 2));
+
+/*var incr = function* (a) {
+  let r = yield Reader.ask();
+  return r + a;
+};
+
+var reader = Reader.of(4).chainGen(function* (a) {
+  yield* incr(a);
+  let x = yield* incr(a);
+  return x;
+}).runReader(42);
+
+console.log(JSON.stringify(reader, null, 2));*/
