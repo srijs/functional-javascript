@@ -81,7 +81,7 @@ Log.prototype.concat = function (log) {
 
 //---
 
-let run = function (gen, of) {
+let seqChain = function (gen, of) {
   let running = function *() {
     return of(yield *gen());
   }();
@@ -125,7 +125,7 @@ let log = function* () {
   return z;
 };
 
-var countdown = function* (n) {
+/*var countdown = function* (n) {
   yield* info('hello ' + n);
   if (n > 0) {
     yield* countdown(n - 1);
@@ -137,7 +137,7 @@ var countdown = function* (n) {
 var countdown42 = function *() {
   yield *countdown(42);
   return 100;
-};
+};*/
 
-var writer = run(countdown42, LogWriter.of.bind(LogWriter));
+var writer = seqChain(log, LogWriter.of.bind(LogWriter));
 console.log(JSON.stringify(writer, null, 2));
