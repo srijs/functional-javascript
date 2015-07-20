@@ -33,30 +33,33 @@ let Writer = function (w, a) {
   this.a = a;
 };
 
+// Writer w a -> w -> Writer w a
 Writer.prototype.tell = function (w) {
   return Writer(w);
 };
 
+// Writer w a -> b -> Writer w b
 Writer.prototype.of = function (a) {
   return Writer(this.w.empty(), a);
 };
 
+// Writer w a -> (a -> b) -> Writer w b
 Writer.prototype.map = function (f) {
   return Writer(this.w, f(this.a));
 };
 
-Writer.prototype.chain = function (fn) {
-  return this.join(fn(this.a));
+// Writer w a -> (a -> Writer w b) -> Writer w b
+Writer.prototype.chain = function (f) {
+  let writer = f(this.a);
+  return new Writer(this.w.concat(writer.w), writer.a);
 };
 
-Writer.prototype.sequence = function (of) {
-  return of(function (writer) {
-    return Writer(this.w.concat(writer.w), writer.a);
-  }.bind(this)).ap(this.a);
-};
-
+// Writer w (Next a) -> Next (Writer w a)
 Writer.prototype.sequenceNext = function () {
-  return this.sequence(Next.of);
+  return new Next(
+    new Writer(this.w, this.a.value),
+    this.a.done
+  );
 };
 
 //---
@@ -86,7 +89,9 @@ let run = function (gen, of) {
   while (!next.done) {
     next = next.value.map(function (a) {
       return Next.fromNext(running.next(a));
-    }).sequenceNext();
+    }).sequenceNext().map(function (a) {
+      return a.chain(function (a) { return a; });
+    });
   }
   return next.value;
 };
